@@ -24,7 +24,7 @@ end
 function utils.testModel(model)
    model:float()
    local imageSize = opt and opt.imageSize or 32
-   local input = torch.randn(1,3,imageSize,imageSize):type(model._type)
+   local input = torch.randn(2,3,imageSize,imageSize):type(model._type)
    print('forward output',{model:forward(input)})
    print('backward output',{model:backward(input,model.output)})
    model:reset()

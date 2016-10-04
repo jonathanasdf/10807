@@ -8,14 +8,8 @@ local c = require 'trepl.colorize'
 local json = require 'cjson'
 local utils = paths.dofile'models/utils.lua'
 
--- for memory optimizations and graph generation
-local optnet = require 'optnet'
-local graphgen = require 'optnet.graphgen'
-local iterm = require 'iterm'
-require 'iterm.dot'
-
 local opt = {
-  dataset = './datasets/cifar10_whitened.t7',
+  dataset = '',
   save = 'logs',
   batchSize = 128,
   learningRate = 0.1,
@@ -26,11 +20,9 @@ local opt = {
   momentum = 0.9,
   epoch_step = "80",
   max_epoch = 300,
-  model = 'nin',
+  model = '',
+  depth = 3,
   optimMethod = 'sgd',
-  init_value = 10,
-  depth = 50,
-  shortcutType = 'A',
   nesterov = false,
   dropout = 0,
   hflip = true,
@@ -38,10 +30,6 @@ local opt = {
   imageSize = 32,
   randomcrop_type = 'zero',
   cudnn_deterministic = false,
-  optnet_optimize = true,
-  generate_graph = false,
-  multiply_input_factor = 1,
-  widen_factor = 1,
   nGPU = 1,
   data_type = 'torch.CudaTensor',
 }
@@ -72,13 +60,6 @@ if opt.data_type:match'torch.Cuda.*Tensor' then
    print('Network has', #net:findModules'cudnn.SpatialConvolution', 'convolutions')
 
    local sample_input = torch.randn(8,3,opt.imageSize,opt.imageSize):cuda()
-   if opt.generate_graph then
-      iterm.dot(graphgen(net, sample_input), opt.save..'/graph.pdf')
-   end
-   if opt.optnet_optimize then
-      optnet.optimizeMemory(net, sample_input, {inplace = false, mode = 'training'})
-   end
-
 end
 model:add(utils.makeDataParallelTable(net, opt.nGPU))
 cast(model)
@@ -155,6 +136,8 @@ local meter = tnt.AverageValueMeter()
 local clerr = tnt.ClassErrorMeter{topk = {1}}
 local train_timer = torch.Timer()
 local test_timer = torch.Timer()
+local trainIterator = getIterator('train')
+local testIterator = getIterator('test')
 
 engine.hooks.onStartEpoch = function(state)
    local epoch = state.epoch + 1
@@ -177,10 +160,11 @@ engine.hooks.onEndEpoch = function(state)
    meter:reset()
    clerr:reset()
    test_timer:reset()
+   trainIterator:exec('resample')
 
    engine:test{
       network = model,
-      iterator = getIterator('test'),
+      iterator = testIterator,
       criterion = criterion,
    }
 
@@ -213,7 +197,7 @@ end
 
 engine:train{
    network = model,
-   iterator = getIterator('train'),
+   iterator = trainIterator,
    criterion = criterion,
    optimMethod = optim.sgd,
    config = tablex.deepcopy(opt),
