@@ -1,30 +1,15 @@
 # Installation
 
-The code depends on Torch http://torch.ch. Follow instructions [here](http://torch.ch/docs/getting-started.html) and run:
+The code depends on Torch http://torch.ch. Follow instructions [here](http://torch.ch/docs/getting-started.html).
 
-```
-luarocks install torchnet
-```
-
-We recommend installing CUDNN v5 for speed. Alternatively you can run on CPU.
-
-For visualizing training curves we used ipython notebook with pandas and bokeh and suggest using anaconda.
-
-# Usage
-
-## Dataset support
-
-The code supports loading simple datasets in torch format. We provide the following:
-
-* CIFAR-10 whitened (using pylearn2) [preprocessed dataset](https://yadi.sk/d/em4b0FMgrnqxy)
-
-To whiten CIFAR-10 and CIFAR-100 we used the following scripts https://github.com/lisa-lab/pylearn2/blob/master/pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py and then converted to torch using https://gist.github.com/szagoruyko/ad2977e4b8dceb64c68ea07f6abf397b and npy to torch converter https://github.com/htwaijry/npy4th.
-
-## Training
+## Training Example
 
 ```bash
-model=<model> dataset=/file1/cifar10/data.t7 scripts/train_cifar.sh
+th Train.lua "models/cifar.lua -channels 8 -nodedepth 1 -pool 3,6 CifarDeepTreeProcessor.lua -flip 0.5 -minCropPercent 0.8" /data/cifar10/trainval.txt out/output.t7 -val /data/cifar10/test.txt -valSize -1 -valEvery 1 -batchSize 128 -epochSize -1 -epochs 100 -learningRate 100 -LRDropEvery 20 -LRDropFactor 5
 ```
-For reference we provide logs for this experiment and [ipython notebook](notebooks/visualize.ipynb) to visualize the results.
 
-Multi-GPU is supported with `nGPU=n` parameter.
+## Testing Example
+
+```bash
+th Forward.lua "out/output.t7 CifarDeepTreeProcessor.lua" /data/cifar10/test.txt -batchSize 128
+```

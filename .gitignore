@@ -1,3 +1,1 @@
-logs
-notebooks/.ipynb_checkpoints
-*.pyc
+out

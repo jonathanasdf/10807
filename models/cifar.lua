@@ -10,15 +10,18 @@ cmd:option('-pool', '3,5', 'before which depths to add pooling layers (1-indexed
 -- Output: {{inputs, left_prob}, {inputs, right_prob}}
 local function DeepTreeNode(c_in, c, size, n)
   local m = nn.Sequential()
+  local convs = {}
 
   local conv = nn.Sequential()
   for i=1,n do
     conv:add(nn.SpatialConvolution(c_in, c, 3, 3, 1, 1, 1, 1):noBias())
+    convs[#convs+1] = conv.modules[#conv.modules]
     conv:add(nn.SpatialBatchNormalization(c))
     conv:add(nn.ReLU(true))
     c_in = c
   end
 
+  local split = nn.Linear(c*size*size, 1)
   m:add(nn.ParallelTable()
        :add(nn.Sequential()
            :add(conv)
@@ -26,7 +29,7 @@ local function DeepTreeNode(c_in, c, size, n)
                 :add(nn.Identity())
                 :add(nn.Sequential()
                      :add(nn.View(-1, c*size*size))
-                     :add(nn.Linear(c*size*size, 1))
+                     :add(split)
                      :add(nn.Sigmoid()))))
        :add(nn.Identity()))
   m:add(nn.FlattenTable())
@@ -54,7 +57,7 @@ local function DeepTreeNode(c_in, c, size, n)
           :add(nn.CMulTable()))
 
   m:add(nn.ConcatTable():add(l):add(r))
-  return m
+  return m, convs, split
 end
 
 -- Input: {image, 1}
@@ -72,6 +75,9 @@ local function createModel(modelOpts)
   local size = 32
   local d = 1
 
+  m.convs = {}
+  m.splits = {}
+
   local preconv = nn.Sequential()
   for i=1,modelOpts.preconv do
     if tableContains(modelOpts.pool, d) then
@@ -79,6 +85,7 @@ local function createModel(modelOpts)
       size = size / 2
     end
     preconv:add(nn.SpatialConvolution(c_in, c, 3, 3, 1, 1, 1, 1):noBias())
+    m.convs[#m.convs+1] = preconv
     preconv:add(nn.SpatialBatchNormalization(c))
     preconv:add(nn.ReLU(true))
     c_in = c
@@ -101,7 +108,12 @@ local function createModel(modelOpts)
              :add(nn.SpatialMaxPooling(2, 2, 2, 2))
              :add(nn.Identity()))
       end
-      s:add(DeepTreeNode(c_in, c, size, modelOpts.nodedepth))
+      local l, convs, split = DeepTreeNode(c_in, c, size, modelOpts.nodedepth)
+      for k=1,#convs do
+        m.convs[#m.convs+1] = convs[k]
+      end
+      m.splits[#m.splits+1] = split
+      s:add(l)
     end
     m:add(t)
 
@@ -121,11 +133,13 @@ local function createModel(modelOpts)
   -- Input: {{inputs, prob}, ...}
   local t = nn.ParallelTable()
   for i=1,n do
+    local class = nn.Linear(c, modelOpts.classes)
+    m.convs[#m.convs+1] = class
     t:add(nn.ParallelTable()
          :add(nn.Sequential()
              :add(nn.SpatialAveragePooling(size, size))
              :add(nn.View(-1, c))
-             :add(nn.Linear(c, modelOpts.classes))
+             :add(class)
              :add(nn.SoftMax()))
          :add(nn.Identity()))
     -- Output: {{label_dist, leaf_prob}, ...}
@@ -137,6 +151,15 @@ local function createModel(modelOpts)
   end
   for _, v in pairs(m:findModules('nn.Linear')) do
     v.bias:zero()
+  end
+
+  m.splitGrads = {}
+  for k, v in pairs(m.splits) do
+    m.splitGrads[k] = v.accGradParameters
+  end
+  m.convGrads = {}
+  for k, v in pairs(m.convs) do
+    m.convGrads[k] = v.accGradParameters
   end
 
   return m
