@@ -1,3 +1,5 @@
+-- This model is for the version where examples are sent down to **both** children with weights lambda and 1-lambda.
+
 local cmd = torch.CmdLine()
 cmd:option('-preconv', 3, '#layers before branching')
 cmd:option('-depth', 4, 'depth of tree. total #nodes = 2^depth')
@@ -139,8 +141,7 @@ local function createModel(modelOpts)
          :add(nn.Sequential()
              :add(nn.SpatialAveragePooling(size, size))
              :add(nn.View(-1, c))
-             :add(class)
-             :add(nn.SoftMax()))
+             :add(class))
          :add(nn.Identity()))
     -- Output: {{label_dist, leaf_prob}, ...}
   end
