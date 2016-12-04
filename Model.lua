@@ -156,7 +156,7 @@ function M:run(dataloader, batchSize, epochSize, randomSample, workerFn, resultH
   end
 end
 
-function M:train(trainFn, valFn)
+function M:Train(trainFn, valFn)
   if not(opts.input) then
     error('Input must be defined for training.')
   end

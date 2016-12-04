@@ -1,3 +1,4 @@
+require 'TrueNLLCriterion'
 local CifarProcessor = require 'CifarProcessor'
 local M = torch.class('CifarDeepTreeWeightedProcessor', 'CifarProcessor')
 
@@ -5,7 +6,7 @@ local M = torch.class('CifarDeepTreeWeightedProcessor', 'CifarProcessor')
 function M:__init(model, processorOpts)
   CifarProcessor.__init(self, model, processorOpts)
 
-  self.criterion = nn.CrossEntropyCriterion():cuda()
+  self.criterion = TrueNLLCriterion():cuda()
   self.pairwiseDistance = nn.PairwiseDistance(2):cuda()
   self.hingeCriterion = nn.HingeEmbeddingCriterion():cuda()
 end
@@ -32,8 +33,7 @@ function M:getLoss(outputs, labels)
     end
     for i=1,#outputs do
       loss = loss + self.criterion:forward(outputs[i][1][j], labels[j]) * outputs[i][2][j][1]
---      if i == I then
-      if i == labels[j] then
+      if i == I then
         gradOutputs[i][1][j] = self.criterion:backward(outputs[i][1][j], labels[j]) * outputs[i][2][j][1]
       end
     end

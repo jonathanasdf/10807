@@ -1,3 +1,4 @@
+require 'TrueNLLCriterion'
 local Processor = require 'Processor'
 local M = torch.class('CifarProcessor', 'Processor')
 
@@ -8,11 +9,11 @@ function M:__init(model, processorOpts)
   self.cmd:option('-randomCrop', 0, '(training) number of pixels to pad for random crop')
   Processor.__init(self, model, processorOpts)
 
-  local data = torch.load('/data/cifar10/data.t7')
+  local data = torch.load('/mnt/sdb1/jshen/cifar10/data.t7')
   self.data = data.data:float()
   self.label = data.labels:cuda()
 
-  self.criterion = nn.CrossEntropyCriterion():cuda()
+  self.criterion = TrueNLLCriterion():cuda()
 
   if opts.logdir then
     self.graph = gnuplot.pngfigure(opts.logdir .. 'acc.png')
@@ -85,7 +86,7 @@ function M:preprocess(path)
 end
 
 function M:getLabels(pathNames, outputs)
-  local labels = torch.CudaTensor(#pathNames)
+  local labels = torch.Tensor(#pathNames):cuda()
   for i=1,#pathNames do
     labels[i] = self.label[tonumber(pathNames[i])]
   end

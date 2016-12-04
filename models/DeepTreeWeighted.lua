@@ -96,7 +96,7 @@ local function createModel(modelOpts)
   m:add(nn.ConcatTable():add(nn.ParallelTable():add(preconv):add(nn.Identity())))
 
   local n = 1
-  for i=1,modelOpts.depth do
+  for i=1,modelOpts.depth-1 do
     local t = nn.ParallelTable()
     if tableContains(modelOpts.pool, d) then
       size = size / 2
@@ -141,7 +141,8 @@ local function createModel(modelOpts)
          :add(nn.Sequential()
              :add(nn.SpatialAveragePooling(size, size))
              :add(nn.View(-1, c))
-             :add(class))
+             :add(class)
+             :add(nn.SoftMax()))
          :add(nn.Identity()))
     -- Output: {{label_dist, leaf_prob}, ...}
   end

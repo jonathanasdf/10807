@@ -41,8 +41,8 @@ function M:forward(pathNames, inputs, deterministic)
   return self.model:forward(inputs, deterministic)
 end
 
-function M:backward(inputs, gradOutputs, gradLayer)
-  return self.model:backward(inputs, gradOutputs, gradLayer)
+function M:backward(inputs, gradOutputs)
+  return self.model:backward(inputs, gradOutputs)
 end
 
 function M:getLoss(outputs, labels)
