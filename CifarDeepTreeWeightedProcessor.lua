@@ -21,9 +21,21 @@ function M:getLoss(outputs, labels)
   local gradOutputs = {}
   for i=1,#outputs do
     gradOutputs[i] = {torch.zeros(outputs[i][1]:size()):cuda(), torch.zeros(outputs[i][2]:size()):cuda()}
-    for j=1,labels:size(1) do
+  end
+  for j=1,labels:size(1) do
+    -- Only propagate gradients back from most likely leaf
+    I = 1
+    for i=2,#outputs do
+      if outputs[i][2][j][1] > outputs[I][2][j][1] then
+        I = i
+      end
+    end
+    for i=1,#outputs do
       loss = loss + self.criterion:forward(outputs[i][1][j], labels[j]) * outputs[i][2][j][1]
-      gradOutputs[i][1][j] = self.criterion:backward(outputs[i][1][j], labels[j]) * outputs[i][2][j][1]
+--      if i == I then
+      if i == labels[j] then
+        gradOutputs[i][1][j] = self.criterion:backward(outputs[i][1][j], labels[j]) * outputs[i][2][j][1]
+      end
     end
   end
 

@@ -49,8 +49,9 @@ function DeepTreeNode:updateOutput(input)
     if not self.output:size():equal(outputSize) then
       self.output = input.new(outputSize)
     end
-    local leftId = 1, rightId = 1
-    for i=1:input:size(1) do
+    local leftId = 1
+    local rightId = 1
+    for i=1,input:size(1) do
       if self.split_output[i] <= 0.5 then
         self.output[i] = self.left_output[leftId]
         leftId = leftId + 1
@@ -78,8 +79,9 @@ function DeepTreeNode:updateGradInput(input, gradOutput)
       self.right_gradInput = self.children[2]:updateGradInput(
           self.right_convOutput, torch.index(gradOutput, self.right))
     end
-    local leftId = 1, rightId = 1
-    for i=1:input:size(1) do
+    local leftId = 1
+    local rightId = 1
+    for i=1,input:size(1) do
       if self.split_output[i] <= 0.5 then
         self.conv_gradOutput[i] = self.left_gradInput[leftId]
         leftId = leftId + 1
