@@ -7,7 +7,6 @@ local CifarProcessor = require 'CifarProcessor'
 local M = torch.class('CifarDeepTreeProcessor', 'CifarProcessor')
 
 function M:__init(model, processorOpts)
-  self.cmd:option('-fixSplits', false, 'fix splits. Should not enable unless splits are pretrained')
   self.cmd:option('-greedy', false, 'use greedy instance-wise information gain for training splits')
   self.cmd:option('-forwardWeighted', false, 'use weighted combination of leaf predictions. Not available in training mode')
   CifarProcessor.__init(self, model, processorOpts)
@@ -40,16 +39,15 @@ function M:train(pathNames)
     self:backward(inputs, gradOutputs)
   end
 
-  if not self.fixSplits then
-    for _, node in pairs(self.model.module.nodes) do
-      if torch.sum(node.mask) > 0 then
-        gradOutputs = node.split_output.new(node.split_output:size()):zero()
-        local l = self.splitCriterion:forward(node.split_output[node.mask], labels[node.mask])
-        gradOutputs[node.mask] = self.splitCriterion:backward(node.split_output[node.mask], labels[node.mask])
-        loss = loss + l
-        node.split:updateGradInput(node.conv_output, gradOutputs)
-        node.split:accGradParameters(node.conv_output, gradOutputs, 1)
-      end
+  -- update old splits
+  for _, node in pairs(self.model.module.nodes) do
+    if torch.sum(node.mask) > 0 then
+      gradOutputs = node.split_output.new(node.split_output:size()):zero()
+      local l = self.splitCriterion:forward(node.split_output[node.mask], labels[node.mask])
+      gradOutputs[node.mask] = self.splitCriterion:backward(node.split_output[node.mask], labels[node.mask])
+      loss = loss + l
+      node.split:updateGradInput(node.conv_output, gradOutputs)
+      node.split:accGradParameters(node.conv_output, gradOutputs, 1)
     end
   end
 
