@@ -178,11 +178,14 @@ end
 
 function DeepTreeNode:__tostring__()
   if self.children then
-    res = string.format('%s @ %s\n|---%s\n|---%s', torch.type(self), tostring(self.conv):gsub('\n', '\n|'),
-              tostring(self.children[1]):gsub('\n', '\n|   '),
-              tostring(self.children[2]):gsub('\n', '\n|   '))
+    res = string.format('%s @ {\n|   %s\n|-%s\n|-%s\n}', torch.type(self),
+              tostring(self.conv):gsub('\n', '\n| '),
+              tostring(self.children[1]):gsub('\n', '\n| '),
+              tostring(self.children[2]):gsub('\n', '\n| '))
   else
-    res = string.format('%s with no children @ %s', torch.type(self), tostring(self.conv))
+    res = string.format('%s with no children @ {\n  %s\n  %s\n}', torch.type(self),
+              tostring(self.conv):gsub('\n', '\n  '),
+              tostring(self.split):gsub('\n', '\n  '))
   end
   return res
 end

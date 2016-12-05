@@ -24,11 +24,8 @@ function M:train(pathNames)
   local labels = self:getLabels(pathNames, outputs)
   local loss = 0
   local gradOutputs
-  if not self.model.pretraining then
-    loss, gradOutputs = self:getLoss(outputs, labels)
-    self:backward(inputs, gradOutputs)
-  else
-    gradOutputs = outputs.new(outputs:size()):zero()
+  if self.model.pretraining then
+    gradOutputs = outputs.new(outputs:size())
     for _, leaf in pairs(self.model.module.leaves) do
       if torch.sum(leaf.mask) > 0 then
         local l = self.splitCriterion:forward(outputs[leaf.mask], labels[leaf.mask])
@@ -36,6 +33,9 @@ function M:train(pathNames)
         loss = loss + l
       end
     end
+    self:backward(inputs, gradOutputs)
+  else
+    loss, gradOutputs = self:getLoss(outputs, labels)
     self:backward(inputs, gradOutputs)
   end
 
@@ -79,14 +79,14 @@ function M:updateStats(pathNames, outputs, labels)
   local id = 1
   for _, leaf in pairs(self.model.module.leaves) do
     if torch.sum(leaf.left) > 0 then
-      local left = labels:maskedSelect(leaf.left)
+      local left = labels[leaf.left]
       for j=1,left:size(1) do
         self.classCounts[id][left[j]] = self.classCounts[id][left[j]] + 1
       end
     end
     id = id + 1
     if torch.sum(leaf.right) > 0 then
-      local right = labels:maskedSelect(leaf.right)
+      local right = labels[leaf.right]
       for j=1,right:size(1) do
         self.classCounts[id][right[j]] = self.classCounts[id][right[j]] + 1
       end
