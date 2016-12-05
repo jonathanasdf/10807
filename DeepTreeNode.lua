@@ -26,13 +26,15 @@ function DeepTreeNode:__init(nConvLayers, nInputPlane, nOutputPlane, inputWidth,
   self.split:add(nn.View(-1, nOutputPlane*inputWidth*inputHeight))
   self.split:add(nn.Linear(nOutputPlane*inputWidth*inputHeight, 1))
   self.split:add(nn.Sigmoid())
+
+  cudnn.convert(self.conv, cudnn)
+  cudnn.convert(self.split, cudnn)
 end
 
 function DeepTreeNode:addChildren(children)
   assert(#children == 2)
   self.children = children
   for i=1,#self.children do
-    self.children[i].parent = self
     self.children[i].id = self.id*2 + i
   end
 end
@@ -40,11 +42,9 @@ end
 function DeepTreeNode:updateOutput(input, mask)
   self.mask = mask or input.new(input:size(1)):gt(0):fill(1)
   self.conv_output = self.conv:updateOutput(input)
-  local inverse_mask_expanded = torch.expandAs(torch.lt(self.mask, 1):view(input:size(1), 1, 1, 1), self.conv_output)
-  self.conv_output[inverse_mask_expanded] = 0
-  local split_output = self.split:updateOutput(self.conv_output)
-  self.left = torch.cmin(self.mask, torch.le(split_output, 0.5))
-  self.right = torch.cmin(self.mask, torch.gt(split_output, 0.5))
+  self.split_output = self.split:updateOutput(self.conv_output)
+  self.left = torch.cmin(self.mask, torch.le(self.split_output, 0.5))
+  self.right = torch.cmin(self.mask, torch.gt(self.split_output, 0.5))
   if self.children then
     local left_output = self.children[1]:updateOutput(self.conv_output, self.left)
     local right_output = self.children[2]:updateOutput(self.conv_output, self.right)
@@ -55,8 +55,8 @@ function DeepTreeNode:updateOutput(input, mask)
       self.output = left_output.new(left_output:size())
     end
     if self.forwardWeighted then
-      local left_expanded = torch.expandAs((1-split_output):view(input:size(1), 1), self.output)
-      local right_expanded = torch.expandAs(split_output:view(input:size(1), 1), self.output)
+      local left_expanded = torch.expandAs((1-self.split_output):view(input:size(1), 1), self.output)
+      local right_expanded = torch.expandAs(self.split_output:view(input:size(1), 1), self.output)
       self.output = torch.cmul(left_expanded, left_output) + torch.cmul(right_expanded, right_output)
     else
       self.output:zero()
@@ -66,14 +66,7 @@ function DeepTreeNode:updateOutput(input, mask)
       self.output[right_expanded] = right_output[right_expanded]
     end
   else
-    if self.output:dim() ~= split_output:dim() or
-       self.output:size(1) ~= split_output:size(1) or
-       self.output:size(2) ~= split_output:size(2) then
-      self.output = split_output.new(split_output:size())
-    end
-    self.output:zero()
-    local mask_expanded = torch.expandAs(self.mask:view(input:size(1), 1), split_output)
-    self.output[mask_expanded] = split_output[mask_expanded]
+    self.output = self.split_output
   end
   return self.output
 end
@@ -94,40 +87,42 @@ function DeepTreeNode:updateGradInput(input, gradOutput)
     self.conv_gradOutput = self.conv_output.new(self.conv_output:size())
   end
   self.conv_gradOutput:zero()
+
   if self.children then
-    local left_gradInput = self.children[1]:updateGradInput(self.conv_output, gradOutput)
-    local right_gradInput = self.children[2]:updateGradInput(self.conv_output, gradOutput)
+    if not self.left_gradOutput or
+       self.left_gradOutput:size(1) ~= gradOutput:size(1) or self.left_gradOutput:size(2) ~= gradOutput:size(2) then
+      self.left_gradOutput = gradOutput.new(gradOutput:size())
+      self.right_gradOutput = gradOutput.new(gradOutput:size())
+    end
+    self.left_gradOutput:zero()
+    local left_expanded = torch.expandAs(self.left:view(input:size(1), 1), gradOutput)
+    self.left_gradOutput[left_expanded] = gradOutput[left_expanded]
+    local left_gradInput = self.children[1]:updateGradInput(self.conv_output, self.left_gradOutput)
+
+    self.right_gradOutput:zero()
+    local right_expanded = torch.expandAs(self.right:view(input:size(1), 1), gradOutput)
+    self.right_gradOutput[right_expanded] = gradOutput[right_expanded]
+    local right_gradInput = self.children[2]:updateGradInput(self.conv_output, self.right_gradOutput)
 
     local left_expanded = torch.expandAs(self.left:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
     self.conv_gradOutput[left_expanded] = left_gradInput[left_expanded]
     local right_expanded = torch.expandAs(self.right:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
     self.conv_gradOutput[right_expanded] = right_gradInput[right_expanded]
   else
-    local mask_expanded = torch.expandAs(self.mask:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
-    self.conv_gradOutput[mask_expanded] = self.split:updateGradInput(self.conv_output, gradOutput)
+    self.conv_gradOutput = self.split:updateGradInput(self.conv_output, gradOutput)
   end
-
-  if self.gradInput:dim() ~= input:dim() or
-     self.gradInput:size(1) ~= input:size(1) or self.gradInput:size(2) ~= input:size(2) or
-     self.gradInput:size(3) ~= input:size(3) or self.gradInput:size(4) ~= input:size(4) then
-    self.gradInput = input.new(input:size())
-  end
-  self.gradInput:zero()
-  local mask_expanded = torch.expandAs(self.mask:view(input:size(1), 1, 1, 1), self.gradInput)
-  self.gradInput[mask_expanded] = self.conv:updateGradInput(input, self.conv_gradOutput)
+  self.gradInput = self.conv:updateGradInput(input, self.conv_gradOutput)
   return self.gradInput
 end
 
 function DeepTreeNode:accGradParameters(input, gradOutput, scale)
-  local inverse_mask_expanded = torch.expandAs(torch.lt(self.mask, 1):view(input:size(1), 1), gradOutput)
-  gradOutput[inverse_mask_expanded] = 0
-  self.conv:accGradParameters(input, self.conv_gradOutput, scale)
   if self.children then
-    self.children[1]:accGradParameters(self.conv_output, gradOutput, scale)
-    self.children[2]:accGradParameters(self.conv_output, gradOutput, scale)
+    self.children[1]:accGradParameters(self.conv_output, self.left_gradOutput, scale)
+    self.children[2]:accGradParameters(self.conv_output, self.right_gradOutput, scale)
   else
     self.split:accGradParameters(self.conv_output, gradOutput, scale)
   end
+  self.conv:accGradParameters(input, self.conv_gradOutput, scale)
 end
 
 function DeepTreeNode:parameters()
@@ -161,9 +156,12 @@ end
 function DeepTreeNode:clearState()
   self.mask = nil
   self.conv_output = nil
+  self.split_output = nil
   self.left = nil
   self.right = nil
   self.conv_gradOutput = nil
+  self.left_gradOutput = nil
+  self.right_gradOutput = nil
   return Parent.clearState(self)
 end
 

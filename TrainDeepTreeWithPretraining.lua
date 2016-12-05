@@ -13,8 +13,6 @@ processArgs(cmd)
 
 local model = Model(opts.model)
 model.pretraining = true
-model.leaves = model.module.leaves
-model.nodes = model.module.nodes
 model.modelOpts = model.module.modelOpts
 modelOpts = model.modelOpts
 
@@ -33,17 +31,16 @@ for i=2,modelOpts.depth do
     end
 
     local newleaves = {}
-    for _, leaf in pairs(model.leaves) do
+    for _, leaf in pairs(model.module.leaves) do
+      model.module.nodes[#model.module.nodes+1] = leaf
       local pool = tableContains(modelOpts.pool, model.module.depth)
       local l = DeepTreeNode(modelOpts.nodedepth, modelOpts.channels, modelOpts.channels, model.module.size, model.module.size, pool)
       local r = DeepTreeNode(modelOpts.nodedepth, modelOpts.channels, modelOpts.channels, model.module.size, model.module.size, pool)
       leaf:addChildren({l:cuda(), r:cuda()})
       newleaves[#newleaves+1] = l
-      model.nodes[#model.nodes+1] = l
       newleaves[#newleaves+1] = r
-      model.nodes[#model.nodes+1] = r
     end
-    model.leaves = newleaves
+    model.module.leaves = newleaves
     model.module.depth = model.module.depth + 1
     model:zeroGradParameters()
     model.params, model.gradParams = model:getParameters()
@@ -54,7 +51,8 @@ if tableContains(modelOpts.pool, model.module.depth) then
   model.module.size = model.module.size / 2
 end
 
-for _, leaf in pairs(model.leaves) do
+for _, leaf in pairs(model.module.leaves) do
+  model.module.nodes[#model.module.nodes+1] = leaf
   local l = nn.Sequential()
   local r = nn.Sequential()
   if tableContains(modelOpts.pool, model.module.depth) then
@@ -77,6 +75,8 @@ for _, leaf in pairs(model.leaves) do
   r:add(nn.View(-1, modelOpts.channels))
   r:add(nn.Linear(modelOpts.channels, modelOpts.classes))
   r:add(nn.SoftMax())
+  cudnn.convert(l, cudnn)
+  cudnn.convert(r, cudnn)
   leaf:addChildren({l:cuda(), r:cuda()})
 end
 model.module.depth = model.module.depth + 1

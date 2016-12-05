@@ -1,5 +1,4 @@
 -- This model is for the version where examples are sent down to a single children depending on if split is <= 0.5.
--- Requires layer by layer pretraining to learn split functions.
 
 require 'dpnn'
 require 'GreedyInformationGainCriterion'
@@ -8,6 +7,7 @@ local CifarProcessor = require 'CifarProcessor'
 local M = torch.class('CifarDeepTreeProcessor', 'CifarProcessor')
 
 function M:__init(model, processorOpts)
+  self.cmd:option('-fixSplits', false, 'fix splits. Should not enable unless splits are pretrained')
   self.cmd:option('-greedy', false, 'use greedy instance-wise information gain for training splits')
   self.cmd:option('-forwardWeighted', false, 'use weighted combination of leaf predictions. Not available in training mode')
   CifarProcessor.__init(self, model, processorOpts)
@@ -30,7 +30,7 @@ function M:train(pathNames)
     self:backward(inputs, gradOutputs)
   else
     gradOutputs = outputs.new(outputs:size()):zero()
-    for _, leaf in pairs(self.model.leaves) do
+    for _, leaf in pairs(self.model.module.leaves) do
       if torch.sum(leaf.mask) > 0 then
         local l = self.splitCriterion:forward(outputs[leaf.mask], labels[leaf.mask])
         gradOutputs[leaf.mask] = self.splitCriterion:backward(outputs[leaf.mask], labels[leaf.mask])
@@ -40,13 +40,26 @@ function M:train(pathNames)
     self:backward(inputs, gradOutputs)
   end
 
+  if not self.fixSplits then
+    for _, node in pairs(self.model.module.nodes) do
+      if torch.sum(node.mask) > 0 then
+        gradOutputs = node.split_output.new(node.split_output:size()):zero()
+        local l = self.splitCriterion:forward(node.split_output[node.mask], labels[node.mask])
+        gradOutputs[node.mask] = self.splitCriterion:backward(node.split_output[node.mask], labels[node.mask])
+        loss = loss + l
+        node.split:updateGradInput(node.conv_output, gradOutputs)
+        node.split:accGradParameters(node.conv_output, gradOutputs, 1)
+      end
+    end
+  end
+
   self:updateStats(pathNames, outputs, labels)
   return loss, #pathNames
 end
 
 function M:test(pathNames)
   if opts.phase == 'test' and self.forwardWeighted then
-    for _, node in pairs(self.model.nodes) do
+    for _, node in pairs(self.model.module.nodes) do
       node.forwardWeighted = true
     end
   end
@@ -58,7 +71,7 @@ function M:resetStats()
     CifarProcessor.resetStats(self)
   end
 
-  self.classCounts = torch.zeros(2*#self.model.leaves, self.model.modelOpts.classes)
+  self.classCounts = torch.zeros(2*#self.model.module.leaves, self.model.module.modelOpts.classes)
 end
 
 function M:updateStats(pathNames, outputs, labels)
@@ -67,7 +80,7 @@ function M:updateStats(pathNames, outputs, labels)
   end
 
   local id = 1
-  for _, leaf in pairs(self.model.leaves) do
+  for _, leaf in pairs(self.model.module.leaves) do
     if torch.sum(leaf.left) > 0 then
       local left = labels:maskedSelect(leaf.left)
       for j=1,left:size(1) do

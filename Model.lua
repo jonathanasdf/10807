@@ -28,36 +28,19 @@ function M:__init(specStr)
   assert(paths.filep(path), 'Cannot find model ' .. path)
   assert(paths.filep(processorPath), 'Cannot find processor ' .. processorPath)
 
-  nn.DataParallelTable.deserializeNGPUs = opts.nGPU
   self:load(path, table.concat(modelOpts, ' '))
   self.processor = requirePath(processorPath).new(self, table.concat(args, ' '))
 
-  self.module:zeroGradParameters()
   Parent.__init(self, self.module)
-  self:cuda()
 
   print('=> Model')
   print(self.module)
 
+  self:cuda()
+  self:zeroGradParameters()
+
   self.params, self.gradParams = self:getParameters()
   print('Total parameters: ', self.gradParams:dim() > 0 and self.gradParams:size(1) or 0)
-end
-
-local function makeDataParallelTable(model, nGPU)
-  if nGPU > 1 then
-    local gpus = torch.range(1, nGPU):totable()
-    local fastest, benchmark = cudnn.fastest, cudnn.benchmark
-
-    local dpt = nn.DataParallelTable(1, true, true)
-      :add(model, gpus)
-      :threads(function()
-        require 'Model'
-        cudnn.fastest, cudnn.benchmark = fastest, benchmark
-      end)
-    dpt.gradInput = nil
-    model = dpt:cuda()
-  end
-  return model
 end
 
 local function loadSavedModel(filename)
@@ -81,7 +64,6 @@ function M:load(path, modelOpts)
     print('Loading model from file: ' .. path)
     self.module = loadSavedModel(path)
   end
-  self.module = makeDataParallelTable(self.module, opts.nGPU)
 end
 
 function M:save(filename)
