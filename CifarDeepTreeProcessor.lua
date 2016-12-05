@@ -46,8 +46,7 @@ function M:train(pathNames)
       local l = self.splitCriterion:forward(node.split_output[node.mask], labels[node.mask])
       gradOutputs[node.mask] = self.splitCriterion:backward(node.split_output[node.mask], labels[node.mask])
       loss = loss + l
-      node.split:updateGradInput(node.conv_output, gradOutputs)
-      node.split:accGradParameters(node.conv_output, gradOutputs, 1)
+      node.split:backward(node.conv_output, gradOutputs)
     end
   end
 

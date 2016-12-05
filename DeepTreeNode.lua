@@ -1,5 +1,6 @@
+require 'resnet'
 local DeepTreeNode, Parent = torch.class('DeepTreeNode', 'nn.Module')
-function DeepTreeNode:__init(nConvLayers, nInputPlane, nOutputPlane, inputWidth, inputHeight, pooling)
+function DeepTreeNode:__init(nConvLayers, nInputPlane, nOutputPlane, inputWidth, inputHeight, pooling, resnet)
   Parent.__init(self)
 
   self.nConvLayers = nConvLayers
@@ -8,6 +9,7 @@ function DeepTreeNode:__init(nConvLayers, nInputPlane, nOutputPlane, inputWidth,
   self.inputWidth = inputWidth
   self.inputHeight = inputHeight
   self.pooling = pooling or false
+  self.resnet = resnet or false
   self.id = 0
 
   self.conv = nn.Sequential()
@@ -16,13 +18,21 @@ function DeepTreeNode:__init(nConvLayers, nInputPlane, nOutputPlane, inputWidth,
   end
   local inputChannels = nInputPlane
   for i=1,nConvLayers do
-    self.conv:add(nn.SpatialConvolution(inputChannels, nOutputPlane, 3, 3, 1, 1, 1, 1):noBias())
-    self.conv:add(nn.SpatialBatchNormalization(nOutputPlane))
-    self.conv:add(nn.ReLU(true))
+    if self.resnet then
+      self.conv:add(nn.BasicResidualModule(inputChannels, nOutputPlane))
+    else
+      self.conv:add(nn.SpatialConvolution(inputChannels, nOutputPlane, 3, 3, 1, 1, 1, 1):noBias())
+      self.conv:add(nn.SpatialBatchNormalization(nOutputPlane))
+      self.conv:add(nn.ReLU(true))
+    end
     inputChannels = nOutputPlane
   end
 
   self.split = nn.Sequential()
+  if self.resnet then
+    self.split:add(nn.SpatialBatchNormalization(nOutputPlane))
+    self.split:add(nn.ReLU(true))
+  end
   self.split:add(nn.View(-1, nOutputPlane*inputWidth*inputHeight))
   self.split:add(nn.Linear(nOutputPlane*inputWidth*inputHeight, 1))
   self.split:add(nn.Sigmoid())
@@ -104,9 +114,10 @@ function DeepTreeNode:updateGradInput(input, gradOutput)
     self.right_gradOutput[right_expanded] = gradOutput[right_expanded]
     local right_gradInput = self.children[2]:updateGradInput(self.conv_output, self.right_gradOutput)
 
-    local left_expanded = torch.expandAs(self.left:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
+    left_expanded = torch.expandAs(self.left:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
     self.conv_gradOutput[left_expanded] = left_gradInput[left_expanded]
-    local right_expanded = torch.expandAs(self.right:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
+
+    right_expanded = torch.expandAs(self.right:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
     self.conv_gradOutput[right_expanded] = right_gradInput[right_expanded]
   else
     self.conv_gradOutput = self.split:updateGradInput(self.conv_output, gradOutput)
@@ -166,16 +177,12 @@ function DeepTreeNode:clearState()
 end
 
 function DeepTreeNode:__tostring__()
-  local extra = ''
-  if self.pooling then
-    extra = extra .. ' with pooling'
-  end
   if self.children then
-    res = string.format('%s%s\n  %s\n  %s', torch.type(self), extra,
-              tostring(self.children[1]):gsub('\n', '\n  '),
-              tostring(self.children[2]):gsub('\n', '\n  '))
+    res = string.format('%s @ %s\n|---%s\n|---%s', torch.type(self), tostring(self.conv):gsub('\n', '\n|'),
+              tostring(self.children[1]):gsub('\n', '\n|   '),
+              tostring(self.children[2]):gsub('\n', '\n|   '))
   else
-    res = string.format('%s with no children', torch.type(self))
+    res = string.format('%s with no children @ %s', torch.type(self), tostring(self.conv))
   end
   return res
 end

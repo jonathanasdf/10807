@@ -8,6 +8,9 @@ require 'paths'
 require 'DataLoader'
 require 'Utils'
 
+require 'DeepTreeNode'
+require 'resnet'
+
 cudnn.benchmark = true
 
 local M, Parent = torch.class('Model', 'nn.Decorator')
