@@ -8,13 +8,29 @@ local M = torch.class('CifarDeepTreeProcessor', 'CifarProcessor')
 
 function M:__init(model, processorOpts)
   self.cmd:option('-greedy', false, 'use greedy instance-wise information gain for training splits')
-  self.cmd:option('-forwardWeighted', false, 'use weighted combination of leaf predictions. Not available in training mode')
+  self.cmd:option('-forwardWeighted', false, 'use weighted combination of children')
+  self.cmd:option('-forceSplits', '', 'Force a particular sequence of splits, eg. l,r,l. Only for test time.')
   CifarProcessor.__init(self, model, processorOpts)
 
   if self.greedy then
     self.splitCriterion = GreedyInformationGainCriterion():cuda()
   else
     self.splitCriterion = InformationGainCriterion():cuda()
+  end
+
+  if self.forceSplits ~= '' then
+    self.forceSplits = self.forceSplits:split(',')
+    for i=1,#self.forceSplits do
+      for _, node in pairs(self.model.module.nodes) do
+        if node.depth == i then
+          if self.forceSplits[i] == 'l' then
+            node.split.modules[3] = nn.MulConstant(0, true)
+          else
+            node.split.modules[3] = nn.Sequential():add(nn.MulConstant(0, true)):add(nn.AddConstant(1, true))
+          end
+        end
+      end
+    end
   end
 end
 
@@ -55,17 +71,21 @@ function M:train(pathNames)
 end
 
 function M:test(pathNames)
-  if opts.phase == 'test' and self.forwardWeighted then
-    for _, node in pairs(self.model.module.nodes) do
-      node.forwardWeighted = true
-    end
-  end
   return CifarProcessor.test(self, pathNames)
 end
 
 function M:resetStats()
   if not self.model.pretraining then
     CifarProcessor.resetStats(self)
+  end
+
+  if self.forwardWeighted then
+    for _, node in pairs(self.model.module.nodes) do
+      node.forwardWeighted = true
+    end
+    for _, leaf in pairs(self.model.module.leaves) do
+      leaf.forwardWeighted = true
+    end
   end
 
   self.classCounts = torch.zeros(2*#self.model.module.leaves, self.model.module.modelOpts.classes)

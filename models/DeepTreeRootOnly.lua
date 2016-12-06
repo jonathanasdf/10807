@@ -43,6 +43,7 @@ local function createModel(modelOpts)
     size = size / 2
   end
   local root = DeepTreeNode(m.modelOpts.nodedepth, c_in, c, size, size)
+  root.depth = 1
   m:add(root)
   m.leaves = {root}
   m.nodes = {}

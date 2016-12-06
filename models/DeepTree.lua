@@ -51,9 +51,10 @@ local function createModel(modelOpts)
     size = size / 2
   end
   local root = DeepTreeNode(m.modelOpts.nodedepth, c_in, c, size, size, pool, m.modelOpts.resnet)
+  root.depth = 1
   m:add(root)
   m.leaves = {root}
-  m.nodes = {root}
+  m.nodes = {}
   d = d+1
 
   for i=2,m.modelOpts.depth-1 do
@@ -65,13 +66,12 @@ local function createModel(modelOpts)
 
     local newleaves = {}
     for _, leaf in pairs(m.leaves) do
+      m.nodes[#m.nodes+1] = leaf
       local l = DeepTreeNode(m.modelOpts.nodedepth, m.modelOpts.channels, m.modelOpts.channels, size, size, pool, m.modelOpts.resnet)
       local r = DeepTreeNode(m.modelOpts.nodedepth, m.modelOpts.channels, m.modelOpts.channels, size, size, pool, m.modelOpts.resnet)
       leaf:addChildren({l, r})
       newleaves[#newleaves+1] = l
-      m.nodes[#m.nodes+1] = l
       newleaves[#newleaves+1] = r
-      m.nodes[#m.nodes+1] = r
     end
     m.leaves = newleaves
     d = d+1
@@ -84,6 +84,7 @@ local function createModel(modelOpts)
   end
 
   for _, leaf in pairs(m.leaves) do
+    m.nodes[#m.nodes+1] = leaf
     local l = nn.Sequential()
     local r = nn.Sequential()
     if pool then

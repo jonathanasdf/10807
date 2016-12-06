@@ -46,6 +46,7 @@ function DeepTreeNode:addChildren(children)
   self.children = children
   for i=1,#self.children do
     self.children[i].id = self.id*2 + i
+    self.children[i].depth = self.depth + 1
   end
 end
 
@@ -104,21 +105,33 @@ function DeepTreeNode:updateGradInput(input, gradOutput)
       self.left_gradOutput = gradOutput.new(gradOutput:size())
       self.right_gradOutput = gradOutput.new(gradOutput:size())
     end
-    self.left_gradOutput:zero()
-    local left_expanded = torch.expandAs(self.left:view(input:size(1), 1), gradOutput)
-    self.left_gradOutput[left_expanded] = gradOutput[left_expanded]
-    local left_gradInput = self.children[1]:updateGradInput(self.conv_output, self.left_gradOutput)
+    if self.forwardWeighted then
+      local left_expanded = torch.expandAs((1-self.split_output):view(input:size(1), 1), gradOutput)
+      self.left_gradOutput = torch.cmul(left_expanded, gradOutput)
+      local left_gradInput = self.children[1]:updateGradInput(self.conv_output, self.left_gradOutput)
 
-    self.right_gradOutput:zero()
-    local right_expanded = torch.expandAs(self.right:view(input:size(1), 1), gradOutput)
-    self.right_gradOutput[right_expanded] = gradOutput[right_expanded]
-    local right_gradInput = self.children[2]:updateGradInput(self.conv_output, self.right_gradOutput)
+      local right_expanded = torch.expandAs(self.split_output:view(input:size(1), 1), gradOutput)
+      self.right_gradOutput = torch.cmul(right_expanded, gradOutput)
+      local right_gradInput = self.children[2]:updateGradInput(self.conv_output, self.right_gradOutput)
 
-    left_expanded = torch.expandAs(self.left:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
-    self.conv_gradOutput[left_expanded] = left_gradInput[left_expanded]
+      self.conv_gradOutput = left_gradInput + right_gradInput
+    else
+      self.left_gradOutput:zero()
+      local left_expanded = torch.expandAs(self.left:view(input:size(1), 1), gradOutput)
+      self.left_gradOutput[left_expanded] = gradOutput[left_expanded]
+      local left_gradInput = self.children[1]:updateGradInput(self.conv_output, self.left_gradOutput)
 
-    right_expanded = torch.expandAs(self.right:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
-    self.conv_gradOutput[right_expanded] = right_gradInput[right_expanded]
+      self.right_gradOutput:zero()
+      local right_expanded = torch.expandAs(self.right:view(input:size(1), 1), gradOutput)
+      self.right_gradOutput[right_expanded] = gradOutput[right_expanded]
+      local right_gradInput = self.children[2]:updateGradInput(self.conv_output, self.right_gradOutput)
+
+      left_expanded = torch.expandAs(self.left:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
+      self.conv_gradOutput[left_expanded] = left_gradInput[left_expanded]
+
+      right_expanded = torch.expandAs(self.right:view(input:size(1), 1, 1, 1), self.conv_gradOutput)
+      self.conv_gradOutput[right_expanded] = right_gradInput[right_expanded]
+    end
   else
     self.conv_gradOutput = self.split:updateGradInput(self.conv_output, gradOutput)
   end

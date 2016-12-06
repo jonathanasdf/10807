@@ -1,3 +1,4 @@
+require 'dpnn'
 local function shortcut(nInputPlane, nOutputPlane, stride)
   assert(nOutputPlane >= nInputPlane)
   if stride == 1 and nInputPlane == nOutputPlane then
